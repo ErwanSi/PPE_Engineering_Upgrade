@@ -16,7 +16,7 @@ class Config:
     OUTPUT_DIR: str = os.path.join(os.path.dirname(__file__), "..", "..", "data", "raw", "paradex_prices_5m_sync")
     LOOKBACK_MONTHS: int = 6
 
-    CHUNK_HOURS: int = 200
+    CHUNK_HOURS: int = 50
     CHUNK_MS: int = CHUNK_HOURS * 3600 * 1000
     GLOBAL_RATE_LIMIT_PER_SECOND: float = 20.0
     MAX_CONCURRENT_MARKETS: int = 10

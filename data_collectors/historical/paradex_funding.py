@@ -17,10 +17,10 @@ class Config:
     LOOKBACK_MONTHS: int = 6
 
     PAGE_SIZE: int = 1000
-    REQUEST_TIMEOUT: int = 20
+    REQUEST_TIMEOUT: int = 40
     MAX_RETRIES: int = 8
     GLOBAL_RATE_LIMIT_PER_SECOND: float = 20.0
-    MAX_CONCURRENT_MARKETS: int = 10
+    MAX_CONCURRENT_MARKETS: int = 5
 
 # --- LOGGING ---
 logging.basicConfig(
