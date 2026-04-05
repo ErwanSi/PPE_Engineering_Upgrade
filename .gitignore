@@ -1,0 +1,58 @@
+# ========================
+# Python
+# ========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.egg-info/
+dist/
+build/
+*.egg
+venv/
+.venv/
+env/
+
+# ========================
+# Data (volumineuse — ne pas push)
+# ========================
+data/raw/
+data/processed/
+*.parquet
+
+# ========================
+# Environment & Secrets
+# ========================
+.env
+.env.local
+.env.production
+.env.*.local
+
+# ========================
+# Node / Next.js
+# ========================
+node_modules/
+frontend/.next/
+frontend/out/
+npm-debug.log*
+
+# ========================
+# IDE
+# ========================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ========================
+# OS
+# ========================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ========================
+# Redis
+# ========================
+dump.rdb
