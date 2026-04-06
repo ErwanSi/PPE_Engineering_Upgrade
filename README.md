@@ -477,10 +477,10 @@ BOT_MODE=manual  # manual | paper | live
 | Nom | Rôle |
 |-----|------|
 | Erwan Simon | Quantitative Researcher & Strategy Architect |
-| Hamza Ouadoudi | Backend & Trading Engine Developer |
+| Jeromsan Judis Ramses | Backend & Trading Engine Developer |
 | Hamza Ouadoudi | Data Engineer |
-| Hamza Ouadoudi | Frontend Developer & UI/UX |
-| Hamza Ouadoudi | DevOps & Blockchain Infrastructure Engineer |
+| Badr El Bakkali | Frontend Developer & UI/UX |
+| Farhan Morisson | DevOps & Blockchain Infrastructure Engineer |
 
 ---
 
