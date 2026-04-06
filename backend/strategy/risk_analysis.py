@@ -39,7 +39,7 @@ class RiskAnalyzer:
             "lags_used": int(result[2]),
             "n_observations": int(result[3]),
             "critical_values": {k: round(float(v), 4) for k, v in result[4].items()},
-            "is_stationary": result[1] < 0.05,
+            "is_stationary": bool(result[1] < 0.05),
             "interpretation": (
                 "✅ Stationary (mean-reverting) — Safe for arbitrage"
                 if result[1] < 0.05
@@ -71,7 +71,7 @@ class RiskAnalyzer:
                 "5%": round(float(crit_values[1]), 4),
                 "10%": round(float(crit_values[2]), 4),
             },
-            "is_cointegrated": pvalue < 0.05,
+            "is_cointegrated": bool(pvalue < 0.05),
             "interpretation": (
                 "✅ Cointegrated — Stable long-term relationship exists"
                 if pvalue < 0.05
