@@ -24,7 +24,14 @@ export default function BotPage() {
   const [pairs, setPairs] = useState([{ token: 'BTC', long: 'extended', short: 'binance' }]);
   const [mode, setMode] = useState('manual');
   const [loading, setLoading] = useState(false);
+  const [tokens, setTokens] = useState<string[]>([]);
   const logEndRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    fetchAPI('/api/historical/tokens')
+      .then(res => setTokens(res.tokens || []))
+      .catch(() => { });
+  }, []);
 
   useEffect(() => {
     loadStatus();
@@ -173,12 +180,14 @@ export default function BotPage() {
               padding: '10px 12px', background: 'rgba(255,255,255,0.02)',
               borderRadius: 8, border: '1px solid rgba(255,255,255,0.04)',
             }}>
-              <input
-                placeholder="Token"
+              <select
                 value={pair.token}
                 onChange={e => updatePair(i, 'token', e.target.value)}
                 style={inputStyle}
-              />
+              >
+                <option value="">Select Token</option>
+                {tokens.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
               <span style={{ color: '#666', fontSize: 12 }}>Long:</span>
               <select value={pair.long} onChange={e => updatePair(i, 'long', e.target.value)} style={{ ...inputStyle, width: 110 }}>
                 {['binance', 'hyperliquid', 'extended', 'paradex'].map(ex => (

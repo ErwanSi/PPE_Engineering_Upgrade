@@ -89,6 +89,9 @@ class SignalGenerator:
             "zscore": zscore.loc[common_idx],
         })
 
+        # Add 3-hour Moving Average for trend filtering
+        df["sma_3h"] = df["funding_spread"].rolling(window=3).mean()
+
         df["signal"] = df["zscore"].apply(self.get_signal)
 
         # Detect signal transitions

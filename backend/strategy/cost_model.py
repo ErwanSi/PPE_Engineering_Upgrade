@@ -19,12 +19,12 @@ class ExchangeFees:
 
 # Default fee structures (mid-tier user, no discounts)
 EXCHANGE_FEES = {
-    "binance": ExchangeFees(maker_bps=2.0, taker_bps=4.0, funding_interval_hours=8.0),
-    "hyperliquid": ExchangeFees(maker_bps=2.0, taker_bps=5.0, funding_interval_hours=1.0),
-    "extended": ExchangeFees(maker_bps=2.0, taker_bps=5.0, funding_interval_hours=1.0,
-                              has_gas=True, gas_estimate_usd=0.5),
-    "paradex": ExchangeFees(maker_bps=2.0, taker_bps=5.0, funding_interval_hours=1.0,
-                             has_gas=True, gas_estimate_usd=0.5),
+    "binance": ExchangeFees(maker_bps=2.0, taker_bps=5.0, funding_interval_hours=8.0),
+    "hyperliquid": ExchangeFees(maker_bps=1.0, taker_bps=3.5, funding_interval_hours=1.0),
+    "extended": ExchangeFees(maker_bps=1.0, taker_bps=3.5, funding_interval_hours=1.0,
+                              has_gas=True, gas_estimate_usd=0.2),
+    "paradex": ExchangeFees(maker_bps=0.0, taker_bps=2.0, funding_interval_hours=1.0,
+                             has_gas=True, gas_estimate_usd=0.2),
 }
 
 

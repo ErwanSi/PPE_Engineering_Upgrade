@@ -26,7 +26,6 @@ interface ScanResult {
 }
 
 export default function HistoricalPage() {
-  const [dataset, setDataset] = useState('ARBITRAGE');
   const [quality, setQuality] = useState<QualityData | null>(null);
   const [scanResults, setScanResults] = useState<ScanResult[]>([]);
   const [tab, setTab] = useState<'quality' | 'scanner'>('scanner');
@@ -34,12 +33,12 @@ export default function HistoricalPage() {
 
   useEffect(() => {
     loadQuality();
-  }, [dataset]);
+  }, []);
 
   async function loadQuality() {
     setLoading(true);
     try {
-      const res = await fetchAPI(`/api/historical/data-quality?dataset=${dataset}`);
+      const res = await fetchAPI(`/api/historical/data-quality`);
       setQuality(res);
     } catch (e) { console.error(e); }
     setLoading(false);
@@ -48,7 +47,7 @@ export default function HistoricalPage() {
   async function runScan() {
     setLoading(true);
     try {
-      const res = await fetchAPI(`/api/historical/scanner?dataset=${dataset}`);
+      const res = await fetchAPI(`/api/historical/scanner`);
       setScanResults(res.opportunities || []);
     } catch (e) { console.error(e); }
     setLoading(false);
@@ -65,21 +64,11 @@ export default function HistoricalPage() {
         </p>
       </div>
 
-      {/* Controls */}
       <div style={{
         display: 'flex', gap: 12, marginBottom: 20, alignItems: 'center',
         background: '#1a1a2e', borderRadius: 12, padding: '12px 20px',
         border: '1px solid rgba(255,255,255,0.06)',
       }}>
-        <select value={dataset} onChange={e => setDataset(e.target.value)} style={{
-          background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-          borderRadius: 8, padding: '10px 16px', color: '#e8e8f0', fontSize: 14,
-        }}>
-          <option value="ARBITRAGE">🛡️ Arbitrage (Recommended)</option>
-          <option value="STRICT">💎 Strict</option>
-          <option value="ALL">🌍 All</option>
-        </select>
-
         <div style={{ display: 'flex', gap: 4, background: 'rgba(255,255,255,0.03)', borderRadius: 8, padding: 3 }}>
           {(['scanner', 'quality'] as const).map(t => (
             <button key={t} onClick={() => setTab(t)} style={{

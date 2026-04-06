@@ -68,12 +68,12 @@ class DataService:
     # ============================
     # HISTORICAL DATA (Parquet)
     # ============================
-    def _load_matrix(self, data_type: str, dataset: str) -> Optional[pd.DataFrame]:
-        cache_key = f"{data_type}_{dataset}"
+    def _load_matrix(self, data_type: str) -> Optional[pd.DataFrame]:
+        cache_key = data_type
         if cache_key in self._cache:
             return self._cache[cache_key]
 
-        filename = f"MASTER_{data_type}_{dataset}.parquet"
+        filename = f"MASTER_{data_type}.parquet"
         path = os.path.join(DATA_DIR, filename)
 
         if not os.path.exists(path):
@@ -86,8 +86,8 @@ class DataService:
         except Exception:
             return None
 
-    def get_available_tokens(self, dataset: str) -> List[str]:
-        df = self._load_matrix("PRICES_5M", dataset)
+    def get_available_tokens(self) -> List[str]:
+        df = self._load_matrix("PRICES_5M")
         if df is None:
             return []
         try:
@@ -95,8 +95,8 @@ class DataService:
         except Exception:
             return []
 
-    def get_token_exchanges(self, token: str, dataset: str) -> List[str]:
-        df = self._load_matrix("PRICES_5M", dataset)
+    def get_token_exchanges(self, token: str) -> List[str]:
+        df = self._load_matrix("PRICES_5M")
         if df is None:
             return []
         try:
@@ -105,8 +105,8 @@ class DataService:
         except (KeyError, Exception):
             return []
 
-    def get_funding_series(self, token: str, exchange: str, dataset: str) -> Optional[pd.Series]:
-        df = self._load_matrix("FUNDING_1H", dataset)
+    def get_funding_series(self, token: str, exchange: str) -> Optional[pd.Series]:
+        df = self._load_matrix("FUNDING_1H")
         if df is None:
             return None
         try:
@@ -114,8 +114,8 @@ class DataService:
         except (KeyError, Exception):
             return pd.Series(dtype=float)
 
-    def get_price_series(self, token: str, exchange: str, dataset: str) -> Optional[pd.Series]:
-        df = self._load_matrix("PRICES_5M", dataset)
+    def get_price_series(self, token: str, exchange: str) -> Optional[pd.Series]:
+        df = self._load_matrix("PRICES_5M")
         if df is None:
             return None
         try:
@@ -123,8 +123,8 @@ class DataService:
         except (KeyError, Exception):
             return pd.Series(dtype=float)
 
-    def get_data_quality(self, dataset: str) -> Dict[str, Any]:
-        df = self._load_matrix("PRICES_5M", dataset)
+    def get_data_quality(self) -> Dict[str, Any]:
+        df = self._load_matrix("PRICES_5M")
         if df is None:
             return {"error": "Data not found"}
 
@@ -138,8 +138,19 @@ class DataService:
             for token in df.columns.get_level_values('token').unique():
                 subset = df.xs(token, axis=1, level='token')
                 first_valid = subset.first_valid_index()
+                if first_valid is None:
+                    continue
+                
+                token_missing_rates = []
+                for exch in subset.columns:
+                    s = subset[exch]
+                    idx = s.first_valid_index()
+                    if idx is not None:
+                        token_missing_rates.append(s.loc[idx:].isna().mean())
+                
+                missing_pct = float(np.mean(token_missing_rates) * 100) if token_missing_rates else 0.0
+
                 last_valid = subset.index[subset.notna().any(axis=1)][-1] if subset.notna().any(axis=1).any() else None
-                missing_pct = float(subset.isna().mean().mean() * 100)
 
                 token_quality.append({
                     "token": token,
@@ -162,8 +173,8 @@ class DataService:
             "tokens": token_quality
         }
 
-    def scan_opportunities(self, dataset: str) -> List[Dict]:
-        df_f = self._load_matrix("FUNDING_1H", dataset)
+    def scan_opportunities(self) -> List[Dict]:
+        df_f = self._load_matrix("FUNDING_1H")
         if df_f is None:
             return []
 

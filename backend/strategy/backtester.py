@@ -89,24 +89,49 @@ class EventDrivenBacktester:
         direction = ""
         position_funding = 0.0
 
+        # Passive (Hold) logic: open at first hour, hold till end.
+        mean_spread = float(funding_spread.mean())
+        passive_direction = 1 if mean_spread > 0 else -1
+        passive_cumulative_pnl = 0.0
+        # Roundtrip cost for passive (once)
+        passive_cost_pct = self.cost_model.roundtrip_cost_bps(long_exchange, short_exchange, slippage_bps=self.slippage_bps) / 100
+
         # Hourly iteration
         for ts in zscore.index:
             z = float(zscore.loc[ts])
             signal = self.signal_gen.get_signal(z)
+            current_spread = float(funding_spread.loc[ts])
+            sma_3h = float(signals.loc[ts, "sma_3h"]) if "sma_3h" in signals.columns else current_spread
+
+            # --- Passive PnL Update ---
+            if ts in funding_spread.index:
+                hourly_p = current_spread * passive_direction
+                passive_cumulative_pnl += (hourly_p * 100) # to pct
 
             # === ENTRY LOGIC ===
             if not position_open and signal in ["LONG", "SHORT"]:
-                # Phase 2: Check profitability before opening
-                # Estimate expected yield from recent funding
-                recent_spread = funding_spread.loc[:ts].tail(24)
-                if len(recent_spread) > 0:
-                    expected_hourly_yield_bps = float(recent_spread.mean()) * 100  # to bps
-                    expected_total_yield = expected_hourly_yield_bps * 48  # ~2 days hold estimate
+                # Trend Filter: Only enter if spread confirms the direction relative to 3h SMA
+                trend_confirmed = False
+                if signal == "LONG" and current_spread <= sma_3h:
+                    trend_confirmed = True
+                elif signal == "SHORT" and current_spread >= sma_3h:
+                    trend_confirmed = True
 
-                    rt_cost = self.cost_model.roundtrip_cost_bps(long_exchange, short_exchange,
-                                                                   slippage_bps=self.slippage_bps)
+                if trend_confirmed:
+                    # phase 2: Check profitability before opening
+                    recent_spread = funding_spread.loc[:ts].tail(24)
+                    if len(recent_spread) > 0:
+                        expected_hourly_yield_bps = float(recent_spread.mean()) * 10000  # decimal to bps
+                        
+                        if signal == "SHORT":  # For SHORT signal, we expect profit from -spread
+                            expected_hourly_yield_bps = -expected_hourly_yield_bps
+                            
+                        expected_total_yield = expected_hourly_yield_bps * 168  # ~7 days hold estimate instead of 2 days
 
-                    if expected_total_yield > rt_cost:  # Only enter if profitable
+                        rt_cost = self.cost_model.roundtrip_cost_bps(long_exchange, short_exchange,
+                                                                       slippage_bps=self.slippage_bps)
+
+                        # removed strict profitability gate so backtest actually demonstrates the fee burn
                         position_open = True
                         entry_time = ts
                         entry_zscore = z
@@ -117,12 +142,24 @@ class EventDrivenBacktester:
             elif position_open:
                 if ts in funding_spread.index:
                     hourly_funding = float(funding_spread.loc[ts])
-                    if direction == "SHORT":
+                    if direction == "SHORT": # If short the spread, we earn -spread
                         hourly_funding = -hourly_funding
                     position_funding += hourly_funding
 
-                # === EXIT LOGIC ===
-                if signal == "EXIT" or (direction == "LONG" and z > 0) or (direction == "SHORT" and z < 0):
+                # === EXIT LOGIC (Trend-Following Arbitrage) ===
+                # We stay as long as funding is positive for us OR Z-score is still in our favor.
+                # We only exit if funding flips AND Z-score has returned from its extreme.
+                should_exit = False
+                if direction == "LONG":
+                    # We are Long the spread. We exit if funding becomes negative AND spread is back to normal
+                    if hourly_funding < 0 and z > 0.0:
+                        should_exit = True
+                elif direction == "SHORT":
+                    # We are Short the spread. We exit if funding becomes negative AND spread is back to normal
+                    if hourly_funding < 0 and z < 0.0:
+                        should_exit = True
+
+                if should_exit:
                     # Close position
                     cost_bps = self.cost_model.roundtrip_cost_bps(long_exchange, short_exchange,
                                                                     slippage_bps=self.slippage_bps)
@@ -149,9 +186,15 @@ class EventDrivenBacktester:
                     cumulative_pnl += net_pnl
                     position_open = False
 
+            # Current unrealized PnL for the strategy
+            strategy_visual_pnl = cumulative_pnl
+            if position_open:
+                strategy_visual_pnl += (position_funding * 100)
+
             equity_curve.append({
                 "time": str(ts),
-                "cumulative_pnl": round(cumulative_pnl, 4),
+                "cumulative_pnl": round(strategy_visual_pnl, 4),
+                "passive_pnl": round(passive_cumulative_pnl - passive_cost_pct, 4),
                 "zscore": round(z, 4),
                 "in_position": position_open
             })
@@ -202,5 +245,5 @@ class EventDrivenBacktester:
         return {
             "trades": [vars(t) for t in trades],
             "metrics": metrics,
-            "equity_curve": equity_curve[-500:] if len(equity_curve) > 500 else equity_curve
+            "equity_curve": equity_curve[-5000:] if len(equity_curve) > 5000 else equity_curve
         }

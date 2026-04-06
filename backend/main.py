@@ -18,10 +18,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from services.data_service import DataService
+from schemas import StrategyConfig, BacktestRequest, BotCommand
 from strategy.risk_analysis import RiskAnalyzer
 from strategy.cost_model import CostModel
 from strategy.signal_generator import SignalGenerator
 from strategy.backtester import EventDrivenBacktester
+from strategy.optimizer import StrategyOptimizer
 from bot.supervisor import BotSupervisor
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
@@ -60,32 +62,7 @@ app.add_middleware(
 # ============================
 # MODELS
 # ============================
-class StrategyConfig(BaseModel):
-    zscore_entry: float = 2.0
-    zscore_exit: float = 0.5
-    lookback_hours: int = 168
-    max_leverage: float = 3.0
-    max_position_usd: float = 10000.0
-    delta_tolerance: float = 0.02
-    rebalance_margin_pct: float = 0.15
-    maker_fee_bps: float = 2.0
-    taker_fee_bps: float = 5.0
-    gas_fee_usd: float = 1.0
-    slippage_bps: float = 3.0
-
-
-class BacktestRequest(BaseModel):
-    token: str
-    long_exchange: str
-    short_exchange: str
-    config: StrategyConfig = StrategyConfig()
-    dataset: str = "ARBITRAGE"
-
-
-class BotCommand(BaseModel):
-    action: str  # start, stop, status
-    config: Optional[StrategyConfig] = None
-    pairs: Optional[List[Dict[str, str]]] = None  # [{"token":"BTC","long":"extended","short":"binance"}]
+# Models are now in schemas.py
 
 
 # ============================
@@ -132,30 +109,30 @@ async def get_live_data(search: str = "", min_exchanges: int = 2):
 # HISTORICAL DATA ENDPOINTS
 # ============================
 @app.get("/api/historical/tokens")
-async def get_available_tokens(dataset: str = "ARBITRAGE"):
+async def get_available_tokens():
     """List all tokens available in historical data."""
     try:
-        tokens = data_service.get_available_tokens(dataset)
-        return {"tokens": tokens, "dataset": dataset}
+        tokens = data_service.get_available_tokens()
+        return {"tokens": tokens}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/historical/exchanges")
-async def get_token_exchanges(token: str, dataset: str = "ARBITRAGE"):
+async def get_token_exchanges(token: str):
     """List exchanges available for a given token."""
     try:
-        exchanges = data_service.get_token_exchanges(token, dataset)
+        exchanges = data_service.get_token_exchanges(token)
         return {"token": token, "exchanges": exchanges}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/historical/funding")
-async def get_funding_data(token: str, exchange: str, dataset: str = "ARBITRAGE"):
+async def get_funding_data(token: str, exchange: str):
     """Get historical funding rate data for a token/exchange pair."""
     try:
-        df = data_service.get_funding_series(token, exchange, dataset)
+        df = data_service.get_funding_series(token, exchange)
         if df is None or df.empty:
             raise HTTPException(status_code=404, detail="No data found")
         return {
@@ -169,10 +146,10 @@ async def get_funding_data(token: str, exchange: str, dataset: str = "ARBITRAGE"
 
 
 @app.get("/api/historical/prices")
-async def get_price_data(token: str, exchange: str, dataset: str = "ARBITRAGE"):
+async def get_price_data(token: str, exchange: str):
     """Get historical price data for a token/exchange pair."""
     try:
-        df = data_service.get_price_series(token, exchange, dataset)
+        df = data_service.get_price_series(token, exchange)
         if df is None or df.empty:
             raise HTTPException(status_code=404, detail="No data found")
         return {
@@ -186,20 +163,20 @@ async def get_price_data(token: str, exchange: str, dataset: str = "ARBITRAGE"):
 
 
 @app.get("/api/historical/data-quality")
-async def get_data_quality(dataset: str = "ARBITRAGE"):
+async def get_data_quality():
     """Get data quality metrics: density, coverage, listing dates."""
     try:
-        quality = data_service.get_data_quality(dataset)
+        quality = data_service.get_data_quality()
         return quality
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.get("/api/historical/scanner")
-async def scan_opportunities(dataset: str = "ARBITRAGE"):
+async def scan_opportunities():
     """Scan all pairs for best historical funding arbitrage opportunities."""
     try:
-        results = data_service.scan_opportunities(dataset)
+        results = data_service.scan_opportunities()
         return {"opportunities": results, "count": len(results)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -212,8 +189,8 @@ async def scan_opportunities(dataset: str = "ARBITRAGE"):
 async def analyze_pair(request: BacktestRequest):
     """Run risk analysis (ADF, Cointeg, Hedge Ratio) on a pair."""
     try:
-        p_long = data_service.get_price_series(request.token, request.long_exchange, request.dataset)
-        p_short = data_service.get_price_series(request.token, request.short_exchange, request.dataset)
+        p_long = data_service.get_price_series(request.token, request.long_exchange)
+        p_short = data_service.get_price_series(request.token, request.short_exchange)
 
         if p_long is None or p_short is None:
             raise HTTPException(status_code=404, detail="Price data not found")
@@ -232,10 +209,10 @@ async def analyze_pair(request: BacktestRequest):
 async def run_backtest(request: BacktestRequest):
     """Run event-driven backtest."""
     try:
-        p_long = data_service.get_price_series(request.token, request.long_exchange, request.dataset)
-        p_short = data_service.get_price_series(request.token, request.short_exchange, request.dataset)
-        f_long = data_service.get_funding_series(request.token, request.long_exchange, request.dataset)
-        f_short = data_service.get_funding_series(request.token, request.short_exchange, request.dataset)
+        p_long = data_service.get_price_series(request.token, request.long_exchange)
+        p_short = data_service.get_price_series(request.token, request.short_exchange)
+        f_long = data_service.get_funding_series(request.token, request.long_exchange)
+        f_short = data_service.get_funding_series(request.token, short_exchange := request.short_exchange) # Fix for scoping if needed
 
         if p_long is None or p_short is None:
             raise HTTPException(status_code=404, detail="Data not found")
@@ -250,13 +227,29 @@ async def run_backtest(request: BacktestRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/strategy/optimize")
+async def optimize_strategy(request: BacktestRequest):
+    """Run parameter optimization (Grid Search) for a pair."""
+    try:
+        optimizer = StrategyOptimizer(data_service)
+        results = optimizer.run_optimization(
+            request.token, 
+            request.long_exchange, 
+            request.short_exchange,
+            request.config
+        )
+        return {"results": results}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 @app.get("/api/strategy/zscore")
 async def get_live_zscore(token: str, long_exchange: str, short_exchange: str,
-                          lookback: int = 168, dataset: str = "ARBITRAGE"):
+                          lookback: int = 168):
     """Compute current Z-Score for a pair using recent data."""
     try:
-        f_long = data_service.get_funding_series(token, long_exchange, dataset)
-        f_short = data_service.get_funding_series(token, short_exchange, dataset)
+        f_long = data_service.get_funding_series(token, long_exchange)
+        f_short = data_service.get_funding_series(token, short_exchange)
 
         if f_long is None or f_short is None:
             raise HTTPException(status_code=404, detail="Funding data not found")

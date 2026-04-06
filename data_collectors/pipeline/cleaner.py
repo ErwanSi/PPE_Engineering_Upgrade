@@ -105,7 +105,7 @@ class DataPipelinePro:
                 # Mapping colonnes
                 cols_map = {
                     'close_price': 'val', 'markPrice': 'val', 'Close': 'val', 'c': 'val', 'price': 'val',
-                    'fundingRate': 'val', 'funding_rate': 'val'
+                    'fundingRate': 'val', 'funding_rate': 'val', 'lastFundingRate': 'val'
                 }
                 df = df.rename(columns=cols_map)
                 
@@ -158,70 +158,68 @@ class DataPipelinePro:
         # Fusion verticale de tous les petits bouts
         return pd.concat(dfs, ignore_index=True)
 
-    def generate_matrices(self, df: pd.DataFrame, freq: str) -> Tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-        logger.info("Pivot et génération des matrices...")
+    def generate_matrix(self, df: pd.DataFrame, freq: str) -> pd.DataFrame:
+        logger.info("Pivot et génération de la matrice unifiée...")
         
         # 1. PIVOT AVEC ALIGNEMENT STRICT
         # C'est ici que la magie opère. pivot_table force l'alignement des dates.
         pivot = df.pivot_table(index='datetime', columns=['token', 'exchange'], values='val')
         
         # 2. RÉÉCHANTILLONNAGE
-        # On remplit les trous temporels légers (ex: une minute manquante)
+        # On remplit les trous temporels. 
+        # Pour le funding, on a du 8h (8 périodes). Pour les prix 5m, on met 4h (48 périodes) pour Paradex/Thin exchanges.
         pivot = pivot.resample(freq).asfreq()
+        fill_limit = 48 if freq == '5min' else 8
+        matrix = pivot.ffill(limit=fill_limit)
         
-        # --- MATRICE 1 : ALL (Données brutes alignées) ---
-        # On ne fait PAS de ffill() infini ici. Juste localement (limit=3) pour boucher les micros-trous.
-        # Si Hyperliquid s'arrête en septembre, il restera NaN en novembre.
-        matrix_all = pivot.ffill(limit=3) 
-        
-        # --- MATRICE 2 : STRICT (Intersection Propre) ---
-        # On ne garde que les lignes où il y a assez de données
-        # On rejette les colonnes (Tokens) qui sont vides à plus de 20%
-        missing_pct = pivot.isna().mean()
-        to_drop = missing_pct[missing_pct > Config.MAX_MISSING_PCT]
-        matrix_strict = pivot.drop(columns=to_drop.index)
+        # 3. FILTRAGE DYNAMIQUE DES DONNÉES MANQUANTES (Calculé depuis le listing d'un token)
+        cols_to_drop = []
+        for col in matrix.columns:
+            series = matrix[col]
+            first_idx = series.first_valid_index()
+            if first_idx is None:
+                cols_to_drop.append(col)
+                continue
+                
+            active_series = series.loc[first_idx:]
+            missing_pct = active_series.isna().mean()
+            if missing_pct > 0.10: # Tolérance stricte de 10% manquants sur la durée de vie du token
+                cols_to_drop.append(col)
+                
+        matrix = matrix.drop(columns=cols_to_drop)
         
         # IMPORTANT : On coupe les dates où tout le monde n'est pas là
-        matrix_strict = matrix_strict.dropna(how='all') 
+        matrix = matrix.dropna(how='all')
         
-        # --- MATRICE 3 : ARBITRAGE (Sélection) ---
-        base_matrix_arb = matrix_strict 
-        
+        # 4. SÉLECTION ARBITRAGE (Au moins 2 exchanges)
         # On ne garde que les tokens présents sur au moins 2 exchanges
-        all_tokens = base_matrix_arb.columns.get_level_values('token')
+        all_tokens = matrix.columns.get_level_values('token')
         token_counts = all_tokens.value_counts()
         valid_arb_tokens = token_counts[token_counts >= Config.MIN_EXCHANGES_FOR_ARB].index
         
-        matrix_arb = base_matrix_arb.loc[:, base_matrix_arb.columns.get_level_values('token').isin(valid_arb_tokens)]
+        matrix = matrix.loc[:, matrix.columns.get_level_values('token').isin(valid_arb_tokens)]
 
-        return matrix_all, matrix_strict, matrix_arb
+        return matrix
 
     def run(self):
         # 1. PRIX
         df_p = self.load_data(Config.DIR_PRICES, 'price', '5min')
         if not df_p.empty:
-            p_all, p_strict, p_arb = self.generate_matrices(df_p, '5min')
+            p_matrix = self.generate_matrix(df_p, '5min')
             
-            # Sauvegarde propre avec index DateTime explicite
-            p_all.to_parquet(os.path.join(Config.OUTPUT_DIR, "MASTER_PRICES_5M_ALL.parquet"))
-            p_strict.to_parquet(os.path.join(Config.OUTPUT_DIR, "MASTER_PRICES_5M_STRICT.parquet"))
-            p_arb.to_parquet(os.path.join(Config.OUTPUT_DIR, "MASTER_PRICES_5M_ARBITRAGE.parquet"))
+            # Sauvegarde de la matrice unifiée parfaite
+            p_matrix.to_parquet(os.path.join(Config.OUTPUT_DIR, "MASTER_PRICES_5M.parquet"))
             
-            # Export CSV de debug (facultatif mais utile pour vérif manuelle)
-            # p_arb.tail(100).to_csv(os.path.join(Config.OUTPUT_DIR, "DEBUG_LAST_PRICES.csv"))
-            
-            logger.info(f"✅ PRIX : {p_arb.shape[1]} paires alignées.")
+            logger.info(f"✅ PRIX : {p_matrix.shape[1]} paires alignées conservées.")
 
         # 2. FUNDING
         df_f = self.load_data(Config.DIR_FUNDING, 'fundingRate', 'h')
         if not df_f.empty:
-            f_all, f_strict, f_arb = self.generate_matrices(df_f, '1h')
+            f_matrix = self.generate_matrix(df_f, '1h')
             
-            f_all.to_parquet(os.path.join(Config.OUTPUT_DIR, "MASTER_FUNDING_1H_ALL.parquet"))
-            f_strict.to_parquet(os.path.join(Config.OUTPUT_DIR, "MASTER_FUNDING_1H_STRICT.parquet"))
-            f_arb.to_parquet(os.path.join(Config.OUTPUT_DIR, "MASTER_FUNDING_1H_ARBITRAGE.parquet"))
+            f_matrix.to_parquet(os.path.join(Config.OUTPUT_DIR, "MASTER_FUNDING_1H.parquet"))
             
-            logger.info(f"✅ FUNDING : {f_arb.shape[1]} paires alignées.")
+            logger.info(f"✅ FUNDING : {f_matrix.shape[1]} paires alignées conservées.")
 
 if __name__ == "__main__":
     DataPipelinePro().run()
