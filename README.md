@@ -146,12 +146,12 @@ PPE_Engineering_Upgrade/
 
 - **Python 3.10+**
 - **Node.js 18+**
-- **Redis** (en local ou Docker)
+- **Redis** (en local ou Docker) : https://www.memurai.com/get-memurai
 
 ### 1. Cloner le repo
 
 ```bash
-git clone https://github.com/<votre-user>/PPE_Engineering_Upgrade.git
+git clone https://github.com/ErwanSi/PPE_Engineering_Upgrade.git
 cd PPE_Engineering_Upgrade
 ```
 
