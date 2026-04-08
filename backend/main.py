@@ -24,7 +24,6 @@ from strategy.cost_model import CostModel
 from strategy.signal_generator import SignalGenerator
 from strategy.backtester import EventDrivenBacktester
 from strategy.optimizer import StrategyOptimizer
-from strategy.bot_backtester import PortfolioBacktester
 from bot.supervisor import BotSupervisor
 from bot.auth import verify_user, create_token, verify_token, save_credentials, get_credentials
 
@@ -253,26 +252,6 @@ async def run_backtest(request: BacktestRequest):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/api/bot/backtest")
-async def run_bot_backtest(request: BacktestRequest):
-    """Run portfolio bot backtest over all parameters."""
-    try:
-        cfg = request.config
-        bot_bt = PortfolioBacktester(
-            data_service=data_service,
-            z_entry=cfg.zscore_entry,
-            z_exit=cfg.zscore_exit,
-            lookback=cfg.lookback_hours
-        )
-        result = bot_bt.run()
-        if "error" in result:
-            raise HTTPException(status_code=500, detail=result["error"])
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
 @app.post("/api/strategy/optimize")
 async def optimize_strategy(request: BacktestRequest):
     """Run parameter optimization (Grid Search) for a pair."""
@@ -330,7 +309,7 @@ async def bot_public_status():
     """Public bot status for dashboard — limited info, no auth required."""
     return {
         "is_running": bot_supervisor.is_running,
-        "mode": bot_supervisor.mode,
+        "mode": getattr(bot_supervisor, 'bot_mode', 'manual'),
         "open_positions": len(bot_supervisor.open_positions),
     }
 

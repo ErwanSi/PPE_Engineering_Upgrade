@@ -159,13 +159,7 @@ export default function StrategyPage() {
               {exchanges.map(e => <option key={e} value={e}>{e}</option>)}
             </select>
           </div>
-          <button onClick={runAnalysis} disabled={!selectedToken || loading} style={{
-            background: 'linear-gradient(135deg, #8855ff, #6633cc)', border: 'none',
-            borderRadius: 8, padding: '10px 20px', color: '#fff', fontSize: 13,
-            fontWeight: 700, cursor: 'pointer'
-          }}>
-            🔬 Analyze
-          </button>
+
         </div>
 
         <div style={{ display: 'flex', gap: 12 }}>

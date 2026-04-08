@@ -9,7 +9,6 @@ const navItems = [
   { href: '/historical', label: 'Historical', icon: '' },
   { href: '/strategy', label: 'Strategy', icon: '' },
   { href: '/bot', label: 'Bot Control', icon: '' },
-  { href: '/bot-portfolio', label: 'Bot Portfolio', icon: '' },
 ];
 
 export default function Sidebar() {

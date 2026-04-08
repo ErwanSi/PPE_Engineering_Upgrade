@@ -96,17 +96,15 @@ class BotSupervisor:
             long_ex = pair.get("long", "")
             short_ex = pair.get("short", "")
             if token and long_ex and short_ex:
-                hours_ago = random.randint(6, 48)
-                opened_at = (now - timedelta(hours=hours_ago)).isoformat()
                 self.open_positions.append({
                     "token": token,
                     "long_exchange": long_ex,
                     "short_exchange": short_ex,
                     "signal": random.choice(["ENTER_POS", "ENTER_NEG"]),
                     "size_usd": 10000.0,
-                    "opened_at": opened_at,
+                    "opened_at": now.isoformat(),
                     "status": "paper",
-                    "funding_collected": round(random.uniform(1.2, 8.5) * (hours_ago / 24), 2),
+                    "funding_collected": 0.0,
                     "entry_zscore": round(random.uniform(2.1, 3.2), 2),
                 })
 
@@ -187,6 +185,7 @@ class BotSupervisor:
         """
         Generate 2 months of realistic simulated bot history.
         Target: ~$600-900 net PnL on $30k exposure (2-3% over 60 days).
+        Realistic funding arb yields: 0.01-0.04% per day per position.
         """
         np.random.seed(int(datetime.now(timezone.utc).timestamp()) % 1000)
         random.seed(int(datetime.now(timezone.utc).timestamp()) % 1000)
@@ -194,18 +193,23 @@ class BotSupervisor:
         now = datetime.now(timezone.utc)
         start_date = now - timedelta(days=60)
 
-        n_hours = 60 * 24
+        # --- Configuration ---
+        n_hours = 60 * 24  # 1440 hours
         allocation_per_slot = 10000.0
+        n_slots = 3
+        total_exposure = allocation_per_slot * n_slots  # $30k
+
         sim_pairs = SIMULATED_PAIRS[:6]
 
-        # --- Generate realistic trades per slot ---
-        self.closed_positions.clear()
+        # --- Generate realistic trades ---
+        # First generate trades, then build equity curve from them!
+        self.closed_positions = []
         
+        # We simulate 3 independent "slots" to get enough overlapping trades
         for slot in ["aggressive", "conservative", "balanced"]:
-            cursor = start_date + timedelta(hours=random.randint(2, 12))
-
-            while cursor < now - timedelta(days=1):
-                hold_hours = random.randint(24, 168)  # 1-7 days realistic hold
+            cursor = start_date + timedelta(hours=random.randint(2, 24))
+            while cursor < now - timedelta(days=2):
+                hold_hours = random.randint(24, 168)  # 1-7 days hold
                 entry_time = cursor
                 exit_time = cursor + timedelta(hours=hold_hours)
 
@@ -215,17 +219,22 @@ class BotSupervisor:
                 pair = random.choice(sim_pairs)
                 signal = random.choice(["ENTER_POS", "ENTER_NEG"])
 
-                # Yields: ~0.05-0.12% per day -> $5-12 / day
-                daily_yield_pct = random.uniform(0.05, 0.12)
+                # Realistic yield: 0.02% to 0.10% per day to hit ~$400-600 total
+                daily_yield_pct = random.uniform(0.02, 0.10)
                 days_held = hold_hours / 24
                 gross_funding_usd = (daily_yield_pct / 100) * allocation_per_slot * days_held
 
-                # 70% winners
-                if random.random() > 0.70:
+                # 75% of trades are winners (funding arb is high win rate)
+                is_winner = random.random() < 0.75
+                if not is_winner:
                     gross_funding_usd = -random.uniform(5, 25)
 
-                cost_usd = round(random.uniform(4.0, 7.5), 2)
+                # Costs: ~$3-6 per roundtrip
+                cost_usd = round(random.uniform(3.0, 6.5), 2)
                 net_pnl = round(gross_funding_usd - cost_usd, 2)
+
+                entry_z = round(random.uniform(2.0, 3.8), 2)
+                exit_z = round(random.uniform(-0.6, 0.6), 2)
 
                 self.closed_positions.append({
                     "token": pair["token"],
@@ -238,52 +247,44 @@ class BotSupervisor:
                     "status": "closed",
                     "funding_collected": net_pnl,
                     "slot": slot,
-                    "entry_zscore": round(random.uniform(2.0, 3.8), 2),
-                    "exit_zscore": round(random.uniform(-0.6, 0.6), 2),
+                    "entry_zscore": entry_z,
+                    "exit_zscore": exit_z,
                     "duration_hours": hold_hours,
                     "cost_usd": cost_usd,
                     "gross_funding": round(gross_funding_usd, 2),
                 })
+                
+                # Next trade in this slot starts 1-24h later
+                cursor = exit_time + timedelta(hours=random.randint(1, 24))
 
-                # Next trade starts 2-24h later
-                cursor = exit_time + timedelta(hours=random.randint(2, 24))
+        # Sort trades by close time so they are sequential in history
+        self.closed_positions.sort(key=lambda x: x["closed_at"])
 
-        self.closed_positions.sort(key=lambda x: x["opened_at"])
-
-        # --- Generate equity curve from trades ---
-        self.performance_snapshots.clear()
+        # --- Build perfectly coherent equity curve ---
+        self.performance_snapshots = []
+        cumulative_usd = 0.0
         
-        realized_pnl = 0.0
-        
-        for i in range(0, n_hours, 2):
+        # We sample equity curve every 6 hours
+        for i in range(0, n_hours, 6):
             ts = start_date + timedelta(hours=i)
+            # Find all trades closed before this point
+            closed_pnl = sum(t["funding_collected"] for t in self.closed_positions if datetime.fromisoformat(t["closed_at"]) <= ts)
             
-            # Sum closed trades before ts
-            realized = sum(t["funding_collected"] for t in self.closed_positions if datetime.fromisoformat(t["closed_at"]) <= ts)
+            # Find active trades at this point and accrue proportional funding
+            active_trades = [t for t in self.closed_positions if datetime.fromisoformat(t["opened_at"]) <= ts < datetime.fromisoformat(t["closed_at"])]
+            active_pnl = sum(t["gross_funding"] * ((ts - datetime.fromisoformat(t["opened_at"])).total_seconds() / (t["duration_hours"] * 3600)) for t in active_trades)
             
-            # Unrealized from open trades tracking at ts
-            unrealized = 0.0
-            open_count = 0
-            for t in self.closed_positions:
-                t_open = datetime.fromisoformat(t["opened_at"])
-                t_close = datetime.fromisoformat(t["closed_at"])
-                if t_open <= ts < t_close:
-                    open_count += 1
-                    fraction = (ts - t_open).total_seconds() / (t_close - t_open).total_seconds()
-                    # add some noise to unrealized so curve isn't perfectly straight
-                    noise = random.uniform(-1, 1)
-                    unrealized += (t["gross_funding"] * fraction) - (t["cost_usd"] / 2) + noise
-                    
-            total_equity = realized + unrealized
+            current_equity = closed_pnl + active_pnl
             
             self.performance_snapshots.append({
                 "timestamp": ts.isoformat(),
-                "cumulative_pnl": round(total_equity, 2),
-                "open_positions": open_count,
-                "realized_pnl": round(realized, 2),
+                "cumulative_pnl": round(current_equity, 2),
+                "open_positions": len(active_trades),
+                "realized_pnl": round(closed_pnl, 2),
             })
-
-        self.cumulative_pnl = sum(t["funding_collected"] for t in self.closed_positions)
+            cumulative_usd = current_equity
+            
+        self.cumulative_pnl = round(sum(t["funding_collected"] for t in self.closed_positions), 2)
 
         # --- Generate realistic activity logs ---
         log_cursor = start_date + timedelta(hours=1)
