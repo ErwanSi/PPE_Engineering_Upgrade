@@ -1,6 +1,7 @@
 """
 Phase 5 — Event-Driven Backtester
 Hour-by-hour simulation applying risk rules, costs, and signals.
+Compares strategy vs Funding Hold (permanent arb position).
 """
 import numpy as np
 import pandas as pd
@@ -9,6 +10,7 @@ from dataclasses import dataclass
 
 from strategy.signal_generator import SignalGenerator
 from strategy.cost_model import CostModel
+from strategy.risk_analysis import RiskAnalyzer
 
 
 @dataclass
@@ -33,12 +35,14 @@ class EventDrivenBacktester:
     1. Compute Z-Score → detect signal
     2. Evaluate profitability BEFORE opening
     3. Collect funding and track liquidation risk
-    4. Close on Z-Score return to equilibrium
+    4. Close on Z-Score return to equilibrium or SMA flip
+
+    Benchmark: Funding Hold = permanent arb position collecting spread every hour.
     """
 
     def __init__(self, config=None):
         if config is None:
-            from main import StrategyConfig
+            from schemas import StrategyConfig
             config = StrategyConfig()
 
         self.signal_gen = SignalGenerator(
@@ -79,6 +83,24 @@ class EventDrivenBacktester:
         # Align all data on common hourly index
         zscore = signals["zscore"]
 
+        # --- RISK ANALYSIS (Safety Gate) ---
+        risk_analyzer = RiskAnalyzer()
+        risk_result = risk_analyzer.full_analysis(p_long, p_short)
+        is_safe = risk_result.get("risk_level", "HIGH") != "HIGH"
+
+        # --- FUNDING HOLD BENCHMARK ---
+        # A permanent arb position that collects the funding spread every hour.
+        # Direction: positive spread = we earn; negative = we lose.
+        # We pay roundtrip costs once (open at start, close at end).
+        hold_cost_pct = self.cost_model.roundtrip_cost_bps(
+            long_exchange, short_exchange, slippage_bps=self.slippage_bps
+        ) / 100  # bps → %
+        hold_cumulative = -hold_cost_pct  # pay entry cost upfront
+        hold_curve = []
+
+        # SMA 6h for smoother exit decisions
+        funding_sma_6h = funding_spread.rolling(window=6, min_periods=1).mean()
+
         # Run simulation
         trades: List[BacktestTrade] = []
         equity_curve = []
@@ -88,13 +110,8 @@ class EventDrivenBacktester:
         entry_zscore = 0.0
         direction = ""
         position_funding = 0.0
-
-        # Passive (Hold) logic: open at first hour, hold till end.
-        mean_spread = float(funding_spread.mean())
-        passive_direction = 1 if mean_spread > 0 else -1
-        passive_cumulative_pnl = 0.0
-        # Roundtrip cost for passive (once)
-        passive_cost_pct = self.cost_model.roundtrip_cost_bps(long_exchange, short_exchange, slippage_bps=self.slippage_bps) / 100
+        position_entry_hour = 0
+        hour_counter = 0
 
         # Hourly iteration
         for ts in zscore.index:
@@ -102,67 +119,86 @@ class EventDrivenBacktester:
             signal = self.signal_gen.get_signal(z)
             current_spread = float(funding_spread.loc[ts])
             sma_3h = float(signals.loc[ts, "sma_3h"]) if "sma_3h" in signals.columns else current_spread
+            sma_6h = float(funding_sma_6h.loc[ts]) if ts in funding_sma_6h.index else current_spread
+            hour_counter += 1
 
-            # --- Passive PnL Update ---
-            if ts in funding_spread.index:
-                hourly_p = current_spread * passive_direction
-                passive_cumulative_pnl += (hourly_p * 100) # to pct
+            # --- FUNDING HOLD: collect spread every hour ---
+            hold_cumulative += current_spread * 100  # decimal → %
+            hold_curve.append(round(hold_cumulative, 4))
 
             # === ENTRY LOGIC ===
-            if not position_open and signal in ["LONG", "SHORT"]:
-                # Trend Filter: Only enter if spread confirms the direction relative to 3h SMA
-                trend_confirmed = False
-                if signal == "LONG" and current_spread <= sma_3h:
-                    trend_confirmed = True
-                elif signal == "SHORT" and current_spread >= sma_3h:
-                    trend_confirmed = True
+            if not position_open and signal in ["ENTER_POS", "ENTER_NEG"]:
+                # Risk Filter: Only enter if the pair is historically safe
+                if is_safe:
+                    # Trend Filter: spread confirms direction vs 3h SMA
+                    trend_confirmed = False
+                    if signal == "ENTER_POS" and current_spread >= sma_3h:
+                        trend_confirmed = True
+                    elif signal == "ENTER_NEG" and current_spread <= sma_3h:
+                        trend_confirmed = True
 
-                if trend_confirmed:
-                    # phase 2: Check profitability before opening
-                    recent_spread = funding_spread.loc[:ts].tail(24)
-                    if len(recent_spread) > 0:
-                        expected_hourly_yield_bps = float(recent_spread.mean()) * 10000  # decimal to bps
-                        
-                        if signal == "SHORT":  # For SHORT signal, we expect profit from -spread
-                            expected_hourly_yield_bps = -expected_hourly_yield_bps
-                            
-                        expected_total_yield = expected_hourly_yield_bps * 168  # ~7 days hold estimate instead of 2 days
+                    if trend_confirmed:
+                        # Profitability gate: check if expected yield covers costs
+                        recent_spread = funding_spread.loc[:ts].tail(24)
+                        if len(recent_spread) > 0:
+                            expected_hourly_yield_bps = float(recent_spread.mean()) * 10000
+                            if signal == "ENTER_NEG":
+                                expected_hourly_yield_bps = -expected_hourly_yield_bps
 
-                        rt_cost = self.cost_model.roundtrip_cost_bps(long_exchange, short_exchange,
-                                                                       slippage_bps=self.slippage_bps)
+                            expected_total_yield = expected_hourly_yield_bps * 168  # 7 days hold estimate
+                            rt_cost = self.cost_model.roundtrip_cost_bps(
+                                long_exchange, short_exchange,
+                                slippage_bps=self.slippage_bps
+                            )
 
-                        # removed strict profitability gate so backtest actually demonstrates the fee burn
-                        position_open = True
-                        entry_time = ts
-                        entry_zscore = z
-                        direction = signal
-                        position_funding = 0.0
+                            # Only enter if expected yield > 1.2x costs (20% safety margin)
+                            if expected_total_yield > rt_cost * 1.2:
+                                position_open = True
+                                entry_time = ts
+                                entry_zscore = z
+                                direction = signal
+                                position_funding = 0.0
+                                position_entry_hour = hour_counter
 
-            # === FUNDING COLLECTION ===
+            # === FUNDING COLLECTION & EXIT ===
             elif position_open:
                 if ts in funding_spread.index:
                     hourly_funding = float(funding_spread.loc[ts])
-                    if direction == "SHORT": # If short the spread, we earn -spread
+                    if direction == "ENTER_NEG":
                         hourly_funding = -hourly_funding
                     position_funding += hourly_funding
 
-                # === EXIT LOGIC (Trend-Following Arbitrage) ===
-                # We stay as long as funding is positive for us OR Z-score is still in our favor.
-                # We only exit if funding flips AND Z-score has returned from its extreme.
+                hours_held = hour_counter - position_entry_hour
+
+                # --- EXIT LOGIC (improved) ---
                 should_exit = False
-                if direction == "LONG":
-                    # We are Long the spread. We exit if funding becomes negative AND spread is back to normal
-                    if hourly_funding < 0 and z > 0.0:
-                        should_exit = True
-                elif direction == "SHORT":
-                    # We are Short the spread. We exit if funding becomes negative AND spread is back to normal
-                    if hourly_funding < 0 and z < 0.0:
-                        should_exit = True
+
+                # 1. Stop-loss: if cumulative funding PnL < -0.5%
+                current_funding_pnl_pct = position_funding * 100
+                if current_funding_pnl_pct < -0.5:
+                    should_exit = True
+
+                # 2. Z-Score return to equilibrium (only after min 24h hold)
+                if hours_held >= 24:
+                    if direction == "ENTER_POS":
+                        if z < self.signal_gen.exit_threshold:
+                            should_exit = True
+                        # Smoothed exit: SMA 6h funding flips negative
+                        if sma_6h < 0:
+                            should_exit = True
+                    elif direction == "ENTER_NEG":
+                        if z > -self.signal_gen.exit_threshold:
+                            should_exit = True
+                        # Smoothed exit: inverted SMA 6h funding flips negative
+                        if -sma_6h < 0:
+                            should_exit = True
 
                 if should_exit:
                     # Close position
-                    cost_bps = self.cost_model.roundtrip_cost_bps(long_exchange, short_exchange,
-                                                                    slippage_bps=self.slippage_bps)
+                    cost_bps = self.cost_model.roundtrip_cost_bps(
+                        long_exchange, short_exchange,
+                        slippage_bps=self.slippage_bps
+                    )
                     cost_pct = cost_bps / 100
                     funding_pnl = position_funding * 100  # to pct
                     net_pnl = funding_pnl - cost_pct
@@ -194,7 +230,7 @@ class EventDrivenBacktester:
             equity_curve.append({
                 "time": str(ts),
                 "cumulative_pnl": round(strategy_visual_pnl, 4),
-                "passive_pnl": round(passive_cumulative_pnl - passive_cost_pct, 4),
+                "hold_pnl": round(hold_curve[-1], 4),
                 "zscore": round(z, 4),
                 "in_position": position_open
             })
@@ -203,7 +239,7 @@ class EventDrivenBacktester:
         if not trades:
             return {
                 "trades": [],
-                "metrics": {"total_trades": 0, "message": "No trades triggered"},
+                "metrics": {"total_trades": 0, "message": "No trades triggered", "risk_result": risk_result},
                 "equity_curve": equity_curve[-200:] if len(equity_curve) > 200 else equity_curve
             }
 
@@ -224,12 +260,17 @@ class EventDrivenBacktester:
         drawdowns = cum - peak
         max_dd = float(drawdowns.min()) if len(drawdowns) > 0 else 0
 
+        # Final hold value
+        final_hold = hold_curve[-1] if hold_curve else 0.0
+
         metrics = {
             "total_trades": len(trades),
             "winning_trades": len(winning),
             "losing_trades": len(losing),
             "win_rate": round(len(winning) / len(trades) * 100, 1),
             "total_pnl_pct": round(cumulative_pnl, 4),
+            "hold_pnl_pct": round(final_hold, 4),
+            "alpha_pct": round(cumulative_pnl - final_hold, 4),
             "avg_pnl_per_trade_pct": round(float(pnl_array.mean()), 4),
             "best_trade_pct": round(float(max(net_pnls)), 4),
             "worst_trade_pct": round(float(min(net_pnls)), 4),

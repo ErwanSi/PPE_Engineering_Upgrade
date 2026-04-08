@@ -19,8 +19,27 @@ class BacktestRequest(BaseModel):
     long_exchange: str
     short_exchange: str
     config: StrategyConfig = StrategyConfig()
+    auto_tune: bool = True
 
 class BotCommand(BaseModel):
     action: str  # start, stop, status
     config: Optional[StrategyConfig] = None
     pairs: Optional[List[Dict[str, str]]] = None  # [{"token":"BTC","long":"extended","short":"binance"}]
+
+class LoginRequest(BaseModel):
+    username: str
+    password: str
+
+class CredentialsUpdate(BaseModel):
+    binance_api_key: Optional[str] = None
+    binance_api_secret: Optional[str] = None
+    hyperliquid_api_key: Optional[str] = None
+    hyperliquid_api_secret: Optional[str] = None
+    hyperliquid_wallet: Optional[str] = None
+    extended_api_key: Optional[str] = None
+    extended_api_secret: Optional[str] = None
+    extended_wallet: Optional[str] = None
+    extended_private_key: Optional[str] = None
+    paradex_api_key: Optional[str] = None
+    paradex_api_secret: Optional[str] = None
+    paradex_wallet: Optional[str] = None

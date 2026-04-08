@@ -95,9 +95,9 @@ class CostModel:
                 if expected_funding_yield_bps > 0 else float('inf')
             ),
             "interpretation": (
-                f"✅ Profitable — Net yield: {net_yield_bps:.1f} bps"
+                f"Profitable -- Net yield: {net_yield_bps:.1f} bps"
                 if is_profitable
-                else f"🔴 Not profitable — Cost ({total_cost_bps:.1f} bps) > Yield ({expected_funding_yield_bps:.1f} bps)"
+                else f"Not profitable -- Cost ({total_cost_bps:.1f} bps) > Yield ({expected_funding_yield_bps:.1f} bps)"
             )
         }
 

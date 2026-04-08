@@ -4,11 +4,12 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const navItems = [
-  { href: '/', label: 'Dashboard', icon: '⚡' },
-  { href: '/live', label: 'Live Monitor', icon: '📡' },
-  { href: '/historical', label: 'Historical', icon: '📊' },
-  { href: '/strategy', label: 'Strategy', icon: '🧠' },
-  { href: '/bot', label: 'Bot Control', icon: '🤖' },
+  { href: '/', label: 'Dashboard', icon: '' },
+  { href: '/live', label: 'Live Monitor', icon: '' },
+  { href: '/historical', label: 'Historical', icon: '' },
+  { href: '/strategy', label: 'Strategy', icon: '' },
+  { href: '/bot', label: 'Bot Control', icon: '' },
+  { href: '/bot-portfolio', label: 'Bot Portfolio', icon: '' },
 ];
 
 export default function Sidebar() {

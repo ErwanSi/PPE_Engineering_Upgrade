@@ -96,12 +96,16 @@ class DataService:
             return []
 
     def get_token_exchanges(self, token: str) -> List[str]:
-        df = self._load_matrix("PRICES_5M")
-        if df is None:
+        df_p = self._load_matrix("PRICES_5M")
+        df_f = self._load_matrix("FUNDING_1H")
+        if df_p is None or df_f is None:
             return []
         try:
-            subset = df.xs(token, axis=1, level='token')
-            return sorted(subset.columns.unique().tolist())
+            p_subset = df_p.xs(token, axis=1, level='token')
+            f_subset = df_f.xs(token, axis=1, level='token')
+            # Intersection of columns (exchanges) present in both
+            common_exchanges = set(p_subset.columns).intersection(set(f_subset.columns))
+            return sorted(list(common_exchanges))
         except (KeyError, Exception):
             return []
 
@@ -175,6 +179,7 @@ class DataService:
 
     def scan_opportunities(self) -> List[Dict]:
         df_f = self._load_matrix("FUNDING_1H")
+        df_p = self._load_matrix("PRICES_5M") # Added to check availability
         if df_f is None:
             return []
 
@@ -182,13 +187,19 @@ class DataService:
         results = []
 
         try:
-            unique_tokens = mean_rates.index.get_level_values('token').unique()
+            # We filter by tokens that have both funding and price data
+            f_tokens = set(mean_rates.index.get_level_values('token').unique())
+            p_tokens = set(df_p.columns.get_level_values('token').unique()) if df_p is not None else set()
+            unique_tokens = f_tokens.intersection(p_tokens)
         except Exception:
             return []
 
         for token in unique_tokens:
             try:
-                exchanges = mean_rates[token].index.tolist()
+                # Intersection of exchanges for this token
+                f_exch = set(df_f[token].columns)
+                p_exch = set(df_p[token].columns)
+                exchanges = list(f_exch.intersection(p_exch))
             except KeyError:
                 continue
 

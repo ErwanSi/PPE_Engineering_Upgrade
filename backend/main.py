@@ -13,18 +13,20 @@ import numpy as np
 import pandas as pd
 import redis
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from services.data_service import DataService
-from schemas import StrategyConfig, BacktestRequest, BotCommand
+from schemas import StrategyConfig, BacktestRequest, BotCommand, LoginRequest, CredentialsUpdate
 from strategy.risk_analysis import RiskAnalyzer
 from strategy.cost_model import CostModel
 from strategy.signal_generator import SignalGenerator
 from strategy.backtester import EventDrivenBacktester
 from strategy.optimizer import StrategyOptimizer
+from strategy.bot_backtester import PortfolioBacktester
 from bot.supervisor import BotSupervisor
+from bot.auth import verify_user, create_token, verify_token, save_credentials, get_credentials
 
 load_dotenv(os.path.join(os.path.dirname(__file__), '..', '.env'))
 
@@ -60,9 +62,19 @@ app.add_middleware(
 
 
 # ============================
-# MODELS
+# AUTH HELPERS
 # ============================
-# Models are now in schemas.py
+def get_current_user(authorization: Optional[str] = Header(None)) -> str:
+    """Extract and verify user from Authorization header."""
+    if not authorization:
+        raise HTTPException(status_code=401, detail="Missing Authorization header")
+    
+    # Support "Bearer <token>" format
+    token = authorization.replace("Bearer ", "").strip()
+    username = verify_token(token)
+    if username is None:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    return username
 
 
 # ============================
@@ -212,13 +224,27 @@ async def run_backtest(request: BacktestRequest):
         p_long = data_service.get_price_series(request.token, request.long_exchange)
         p_short = data_service.get_price_series(request.token, request.short_exchange)
         f_long = data_service.get_funding_series(request.token, request.long_exchange)
-        f_short = data_service.get_funding_series(request.token, short_exchange := request.short_exchange) # Fix for scoping if needed
-
+        f_short = data_service.get_funding_series(request.token, request.short_exchange)
+        
         if p_long is None or p_short is None:
             raise HTTPException(status_code=404, detail="Data not found")
 
-        backtester = EventDrivenBacktester(request.config)
+        current_config = request.config
+        if request.auto_tune:
+            optimizer = StrategyOptimizer(data_service)
+            best_cfg = optimizer.get_best_config(request.token, request.long_exchange, request.short_exchange, request.config)
+            if best_cfg:
+                current_config = best_cfg
+
+        backtester = EventDrivenBacktester(current_config)
         result = backtester.run(p_long, p_short, f_long, f_short)
+        
+        # Add optimized params to result for UI feedback
+        result["optimized_params"] = {
+            "zscore_entry": current_config.zscore_entry,
+            "zscore_exit": current_config.zscore_exit,
+            "lookback_hours": current_config.lookback_hours
+        }
         return result
 
     except HTTPException:
@@ -226,6 +252,26 @@ async def run_backtest(request: BacktestRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.post("/api/bot/backtest")
+async def run_bot_backtest(request: BacktestRequest):
+    """Run portfolio bot backtest over all parameters."""
+    try:
+        cfg = request.config
+        bot_bt = PortfolioBacktester(
+            data_service=data_service,
+            z_entry=cfg.zscore_entry,
+            z_exit=cfg.zscore_exit,
+            lookback=cfg.lookback_hours
+        )
+        result = bot_bt.run()
+        if "error" in result:
+            raise HTTPException(status_code=500, detail=result["error"])
+        return result
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/strategy/optimize")
 async def optimize_strategy(request: BacktestRequest):
@@ -261,7 +307,7 @@ async def get_live_zscore(token: str, long_exchange: str, short_exchange: str,
             raise HTTPException(status_code=404, detail="Insufficient data for Z-Score")
 
         current = float(zscore_series.iloc[-1])
-        signal = "LONG" if current < -2 else ("SHORT" if current > 2 else "NEUTRAL")
+        signal = "ENTER_NEG" if current < -2 else ("ENTER_POS" if current > 2 else "NEUTRAL")
 
         return {
             "token": token,
@@ -277,18 +323,61 @@ async def get_live_zscore(token: str, long_exchange: str, short_exchange: str,
 
 
 # ============================
-# BOT CONTROL ENDPOINTS
+# BOT PUBLIC STATUS (no auth needed for dashboard)
+# ============================
+@app.get("/api/bot/status")
+async def bot_public_status():
+    """Public bot status for dashboard — limited info, no auth required."""
+    return {
+        "is_running": bot_supervisor.is_running,
+        "mode": bot_supervisor.mode,
+        "open_positions": len(bot_supervisor.open_positions),
+    }
+
+
+# ============================
+# BOT AUTH ENDPOINTS
+# ============================
+@app.post("/api/bot/login")
+async def bot_login(req: LoginRequest):
+    """Authenticate to access bot features."""
+    if verify_user(req.username, req.password):
+        token = create_token(req.username)
+        return {"token": token, "username": req.username}
+    raise HTTPException(status_code=401, detail="Invalid credentials")
+
+
+@app.post("/api/bot/credentials")
+async def update_credentials(creds: CredentialsUpdate, user: str = Depends(get_current_user)):
+    """Save API keys and wallet addresses."""
+    data = {k: v for k, v in creds.dict().items() if v is not None}
+    if save_credentials(user, data):
+        return {"status": "saved", "message": "Credentials updated successfully"}
+    raise HTTPException(status_code=500, detail="Failed to save credentials")
+
+
+@app.get("/api/bot/credentials")
+async def read_credentials(user: str = Depends(get_current_user)):
+    """Get masked credentials for the current user."""
+    creds = get_credentials(user)
+    return {"credentials": creds or {}}
+
+
+# ============================
+# BOT CONTROL ENDPOINTS (Protected)
 # ============================
 @app.post("/api/bot/command")
-async def bot_command(cmd: BotCommand):
-    """Control the trading bot."""
+async def bot_command(cmd: BotCommand, user: str = Depends(get_current_user)):
+    """Control the trading bot. Requires authentication."""
     global bot_supervisor
 
     if cmd.action == "start":
         if bot_supervisor.is_running:
             return {"status": "already_running"}
+        # Pass data_service for live signal computation
+        bot_supervisor._data_service = data_service
         await bot_supervisor.start(cmd.config, cmd.pairs)
-        return {"status": "started", "mode": os.getenv("BOT_MODE", "manual")}
+        return {"status": "started", "mode": bot_supervisor.bot_mode}
 
     elif cmd.action == "stop":
         await bot_supervisor.stop()
@@ -301,16 +390,44 @@ async def bot_command(cmd: BotCommand):
         raise HTTPException(status_code=400, detail=f"Unknown action: {cmd.action}")
 
 
+@app.post("/api/bot/mode")
+async def set_bot_mode(body: dict, user: str = Depends(get_current_user)):
+    """Switch between manual and auto mode."""
+    mode = body.get("mode", "manual")
+    if mode not in ("manual", "auto"):
+        raise HTTPException(status_code=400, detail="Mode must be 'manual' or 'auto'")
+    bot_supervisor.set_mode(mode)
+    return {"mode": mode}
+
+
+@app.get("/api/bot/auto-pairs")
+async def get_auto_pairs(user: str = Depends(get_current_user)):
+    """Get top 3 pairs recommended for auto mode."""
+    bot_supervisor._data_service = data_service
+    pairs = bot_supervisor.get_auto_pairs()
+    return {"pairs": pairs}
+
+
 @app.get("/api/bot/positions")
-async def get_positions():
+async def get_positions(user: str = Depends(get_current_user)):
     """Get current open positions."""
     return {"positions": bot_supervisor.get_positions()}
 
 
 @app.get("/api/bot/logs")
-async def get_bot_logs(limit: int = 100):
+async def get_bot_logs(limit: int = 100, user: str = Depends(get_current_user)):
     """Get recent bot activity logs."""
     return {"logs": bot_supervisor.get_logs(limit)}
+
+
+@app.get("/api/bot/history")
+async def get_bot_history(user: str = Depends(get_current_user)):
+    """Get historical bot performance summary."""
+    return {
+        "performance": bot_supervisor.get_performance_history(),
+        "total_positions_closed": len(bot_supervisor.closed_positions),
+        "is_running": bot_supervisor.is_running,
+    }
 
 
 # ============================
@@ -339,6 +456,7 @@ async def websocket_bot(websocket: WebSocket):
     try:
         while True:
             status = bot_supervisor.get_status()
+            status["performance"] = bot_supervisor.get_performance_history()
             await websocket.send_json({"type": "bot_status", "data": status})
             await asyncio.sleep(5)
     except WebSocketDisconnect:

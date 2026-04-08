@@ -41,9 +41,9 @@ class RiskAnalyzer:
             "critical_values": {k: round(float(v), 4) for k, v in result[4].items()},
             "is_stationary": bool(result[1] < 0.05),
             "interpretation": (
-                "✅ Stationary (mean-reverting) — Safe for arbitrage"
+                "Stationary (mean-reverting) -- Safe for arbitrage"
                 if result[1] < 0.05
-                else "⚠️ Non-stationary — Basis risk is HIGH"
+                else "Non-stationary -- Basis risk is HIGH"
             )
         }
 
@@ -73,9 +73,9 @@ class RiskAnalyzer:
             },
             "is_cointegrated": bool(pvalue < 0.05),
             "interpretation": (
-                "✅ Cointegrated — Stable long-term relationship exists"
+                "Cointegrated -- Stable long-term relationship exists"
                 if pvalue < 0.05
-                else "⚠️ Not cointegrated — Prices may diverge"
+                else "Not cointegrated -- Prices may diverge"
             )
         }
 
@@ -107,7 +107,7 @@ class RiskAnalyzer:
             "spread_std": round(float(spread.std()), 4),
             "spread_current": round(float(spread.iloc[-1]), 4),
             "interpretation": (
-                f"Hedge ratio β = {beta:.4f} — For every 1 unit long, short {beta:.4f} units"
+                f"Hedge ratio beta = {beta:.4f} -- For every 1 unit long, short {beta:.4f} units"
             )
         }
 
@@ -140,13 +140,13 @@ class RiskAnalyzer:
         is_cointegrated = coint_result.get("is_cointegrated", False)
 
         if spread_stationary and is_cointegrated:
-            verdict = "✅ SAFE — Spread is mean-reverting and prices are cointegrated"
+            verdict = "SAFE -- Spread is mean-reverting and prices are cointegrated"
             risk_level = "LOW"
         elif spread_stationary or is_cointegrated:
-            verdict = "⚠️ MODERATE — Partial evidence of stability"
+            verdict = "MODERATE -- Partial evidence of stability"
             risk_level = "MEDIUM"
         else:
-            verdict = "🔴 HIGH RISK — No statistical evidence of stability"
+            verdict = "HIGH RISK -- No statistical evidence of stability"
             risk_level = "HIGH"
 
         return {

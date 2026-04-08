@@ -15,7 +15,8 @@
 - [Architecture](#-architecture)
 - [Structure du projet](#-structure-du-projet)
 - [Installation](#-installation)
-- [Guide d'utilisation](#-guide-dutilisation)
+- [🆕 Tutoriel utilisateur externe](#-tutoriel-utilisateur-externe)
+- [Guide d'utilisation (développeur)](#-guide-dutilisation-développeur)
 - [Explication des fichiers](#-explication-détaillée-des-fichiers)
 - [Stratégie d'arbitrage](#-stratégie-darbitrage)
 - [Configuration](#%EF%B8%8F-configuration)
@@ -80,24 +81,13 @@ PPE_Engineering_Upgrade/
 │
 ├── 📂 data_collectors/              # Collecte de données
 │   ├── 📂 historical/              # Fetchers historiques (6 mois)
-│   │   ├── binance_funding.py      # Funding rates Binance
-│   │   ├── binance_prices.py       # OHLCV 5min Binance
-│   │   ├── extended_funding.py     # Funding rates Extended
-│   │   ├── extended_prices.py      # Mark prices Extended
-│   │   ├── hyperliquid_funding.py  # Funding rates Hyperliquid
-│   │   ├── hyperliquid_prices.py   # OHLCV 5min Hyperliquid
-│   │   ├── paradex_funding.py      # Funding rates Paradex
-│   │   └── paradex_prices.py       # OHLCV 5min Paradex
 │   ├── 📂 live/                    # Flux temps réel → Redis
-│   │   ├── binance_live.py         # WebSocket/REST Binance
-│   │   ├── extended_live.py        # REST polling Extended
-│   │   ├── hyperliquid_live.py     # REST polling Hyperliquid
-│   │   └── paradex_live.py         # WebSocket Paradex
 │   └── 📂 pipeline/
 │       └── cleaner.py              # Nettoyage et alignement multi-exchange
 │
 ├── 📂 backend/                      # Serveur FastAPI
 │   ├── main.py                     # Routes API + WebSockets
+│   ├── schemas.py                  # Modèles de données (Pydantic)
 │   ├── requirements.txt            # Dépendances Python
 │   ├── 📂 services/
 │   │   └── data_service.py         # Accès Parquet/Redis
@@ -106,35 +96,29 @@ PPE_Engineering_Upgrade/
 │   │   ├── cost_model.py           # Phase 2 : Frais, Slippage
 │   │   ├── signal_generator.py     # Phase 3 : Z-Score
 │   │   ├── rebalancer.py           # Phase 4 : Rebalancing
-│   │   └── backtester.py           # Phase 5 : Backtest
+│   │   ├── backtester.py           # Phase 5 : Backtest par paire
+│   │   ├── bot_backtester.py       # Backtest multi-paires (portfolio)
+│   │   └── optimizer.py            # Grid search de paramètres
 │   └── 📂 bot/                     # Bot d'exécution
+│       ├── auth.py                 # Authentification JWT + gestion users
 │       ├── executor.py             # Ordres via CCXT
 │       ├── wallet_manager.py       # Transferts inter-exchanges
 │       └── supervisor.py           # Boucle principale du bot
 │
 ├── 📂 frontend/                     # Interface Next.js
-│   └── 📂 src/
-│       ├── 📂 app/
-│       │   ├── page.tsx            # Dashboard principal
-│       │   ├── layout.tsx          # Layout + sidebar
-│       │   ├── 📂 live/            # Moniteur temps réel
-│       │   ├── 📂 historical/      # Analyse historique
-│       │   ├── 📂 strategy/        # Labo stratégie
-│       │   └── 📂 bot/             # Contrôle du bot
-│       ├── 📂 components/
-│       │   └── Sidebar.tsx         # Navigation latérale
-│       └── 📂 lib/
-│           └── api.ts              # Client HTTP/WebSocket
+│   └── 📂 src/app/
+│       ├── page.tsx                # Dashboard principal
+│       ├── 📂 live/                # Moniteur temps réel
+│       ├── 📂 historical/          # Analyse historique
+│       ├── 📂 strategy/            # Labo stratégie (backtest par paire)
+│       ├── 📂 bot/                 # Contrôle du bot (login + clés API)
+│       └── 📂 bot-portfolio/       # Backtest portfolio multi-paires
 │
 ├── 📂 data/                         # Données (gitignored)
-│   ├── 📂 raw/                     # Parquet bruts par exchange
-│   └── 📂 processed/              # Matrices alignées MASTER_*
-│
-├── 📂 scripts/
-│   └── flush_redis.py              # Utilitaire de nettoyage Redis
-│
-├── .env                             # Configuration (gitignored)
-├── .gitignore
+├── docker-compose.yml               # Déploiement Docker
+├── Dockerfile.backend
+├── Dockerfile.frontend
+├── .env
 └── README.md
 ```
 
@@ -177,7 +161,7 @@ cd ..
 
 ### 4. Configuration
 
-Copiez `.env.example` vers `.env` et remplissez vos clés API :
+Copiez `.env.example` vers `.env` et remplissez si besoin :
 
 ```bash
 cp .env.example .env
@@ -188,21 +172,154 @@ cp .env.example .env
 ```bash
 # Terminal 1 — Backend
 cd backend
-python -m uvicorn main:app --port 8000 --reload
+python main.py
 
 # Terminal 2 — Frontend
 cd frontend
 npm run dev
-
-# Terminal 3 — Redis (si Docker)
-docker run -p 6379:6379 redis
 ```
 
 Accédez à **http://localhost:3000** 🎉
 
+### Alternative — Docker (production)
+
+```bash
+docker compose up -d
+```
+
+Cela lance automatiquement Redis + Backend + Frontend.
+
 ---
 
-## 📖 Guide d'utilisation
+## 👤 Tutoriel utilisateur externe
+
+> Ce guide est destiné aux personnes qui ont reçu un accès au Bot de la part de l'admin.
+> Vous n'avez pas besoin de connaissances en développement.
+
+### Étape 1 — Accéder à l'application
+
+Ouvrez l'URL fournie par l'admin dans votre navigateur (par ex. `http://adresse-du-serveur:3000`).
+
+Vous arrivez sur le **Dashboard** — une page publique qui affiche les opportunités d'arbitrage en temps réel.
+
+### Étape 2 — Explorer les pages publiques (sans login)
+
+Ces pages sont accessibles **sans compte** :
+
+| Page | Ce qu'elle montre |
+|------|-------------------|
+| **Dashboard** (`/`) | Vue d'ensemble : meilleures opportunités, statut du bot, APR moyens |
+| **Live** (`/live`) | Matrice temps réel des taux de funding sur les 4 exchanges. Rafraîchie toutes les 15s |
+| **Historical** (`/historical`) | Scanner d'opportunités historiques : classement des paires par APR sur 6 mois |
+| **Strategy** (`/strategy`) | Backtest d'une paire spécifique : sélectionnez un token + 2 exchanges, ajustez les paramètres, lancez le backtest et visualisez Strategy vs Funding Hold |
+| **Bot Portfolio** (`/bot-portfolio`) | Backtest multi-paires : simule le bot sur toutes les paires en même temps avec allocation dynamique |
+
+💡 **Astuce** : Commencez par la page **Live** pour voir quels tokens ont les plus gros spreads en ce moment, puis allez dans **Strategy** pour backtester ces paires.
+
+### Étape 3 — Se connecter au Bot
+
+1. Cliquez sur **Bot** dans la barre latérale
+2. Vous arrivez sur l'écran de login 🔐
+3. Entrez les identifiants fournis par l'admin :
+   - **Username** : votre nom d'utilisateur
+   - **Password** : votre mot de passe
+4. Cliquez **Sign In**
+
+> ⚠️ Si vous n'avez pas de compte, contactez l'admin. Les comptes sont créés manuellement.
+
+### Étape 4 — Configurer vos clés API
+
+Avant de pouvoir trader en live, vous devez configurer vos clés d'exchange.
+
+1. Une fois connecté, cliquez sur l'onglet **🔑 API Keys**
+2. Pour chaque exchange que vous utilisez, renseignez :
+   - **API Key** et **API Secret** (depuis votre compte exchange)
+   - **Wallet Address** (si c'est un DEX comme Hyperliquid ou Extended)
+3. Cliquez **💾 Save Credentials**
+
+Vos clés sont stockées de manière chiffrée côté serveur et ne sont jamais affichées en clair (seuls les 4 premiers et 3 derniers caractères sont visibles).
+
+> 💡 Vous pouvez commencer sans clés API : le bot fonctionne en mode simulation par défaut.
+
+### Étape 5 — Choisir le mode du Bot
+
+Dans l'onglet **🎛️ Control**, vous avez deux modes :
+
+| Mode | Comment ça marche |
+|------|-------------------|
+| **📋 Manual** | Vous sélectionnez vous-même les paires à tracker. Ajoutez des paires avec "+ Add Pair", choisissez le token et les deux exchanges |
+| **⚡ Auto** | Le bot sélectionne automatiquement les **3 paires avec le meilleur APR** depuis les données live. Les sélections sont verrouillées |
+
+Pour basculer, cliquez simplement sur le bouton **Manual** ou **Auto** dans la barre de statut.
+
+### Étape 6 — Démarrer le Bot
+
+1. Configurez vos paires (ou passez en mode Auto)
+2. Cliquez **▶ Start Bot**
+3. Le bot génère immédiatement un **historique simulé de 60 jours** pour montrer la performance passée
+4. Il ouvre des positions sur les paires sélectionnées
+5. Le bot continue ensuite en **live** : il vérifie les signaux chaque minute et ajuste les positions
+
+Vous verrez apparaître :
+- La **mini-courbe d'equity** en haut (rendement cumulé sur 60 jours)
+- Les **positions ouvertes** avec leur funding accumulé en temps réel
+- Le **journal d'activité** avec les entrées, sorties, vérifications de marge...
+
+### Étape 7 — Superviser le Bot
+
+Le bot tourne en continu. Vous pouvez :
+
+- **Onglet Control** : Voir les positions ouvertes, les signaux récents, la courbe de rendement
+- **Onglet History** : Voir l'historique complet (trades fermés, PnL réalisé, win rate, PnL moyen par trade)
+- **Journal d'activité** : Défiler les logs pour voir chaque action (entrées, sorties, alertes de marge)
+
+Les métriques clés affichées :
+
+| KPI | Signification |
+|-----|---------------|
+| **Realized PnL** | Profit net réalisé sur les trades fermés ($) |
+| **Closed Trades** | Nombre de positions ouvertes puis fermées |
+| **Win Rate** | Pourcentage de trades rentables |
+| **Avg PnL/Trade** | Profit moyen par trade ($) |
+
+### Étape 8 — Arrêter le Bot
+
+1. Cliquez **■ Stop Bot**
+2. Toutes les positions ouvertes sont fermées automatiquement
+3. Les données sont effacées (PnL remis à zéro)
+4. Au prochain redémarrage, une nouvelle simulation sera générée
+
+> ⚠️ Arrêter le bot ne supprime pas vos clés API (onglet API Keys). Celles-ci restent sauvegardées.
+
+### Étape 9 — Se déconnecter
+
+Cliquez sur **Logout** en haut à droite. Votre session expire automatiquement après 24h.
+
+---
+
+### ❓ FAQ
+
+**Q: Je n'ai pas de compte, comment en obtenir un ?**
+> Contactez l'administrateur du projet. Les comptes sont créés manuellement dans le fichier de configuration du serveur.
+
+**Q: Mes clés API sont-elles en sécurité ?**
+> Oui. Elles sont stockées de manière chiffrée sur le serveur. L'admin du serveur peut les voir dans le fichier `bot_credentials.json`, mais elles ne sont jamais transmises en clair au navigateur (seule une version masquée est affichée).
+
+**Q: Le bot trade-t-il avec du vrai argent ?**
+> Par défaut, non. Le bot démarre en mode **paper** (simulation). Pour passer en mode live avec du vrai capital, l'admin doit changer la variable `BOT_MODE=live` dans la configuration du serveur et vous devez avoir renseigné vos clés API.
+
+**Q: Pourquoi le PnL est à zéro quand j'ouvre la page Bot ?**
+> C'est normal. Les données de performance ne sont générées que quand vous appuyez sur **Start**. Cela inclut une simulation rétrospective de 60 jours. Quand le bot est arrêté, tout est remis à zéro.
+
+**Q: Qu'est-ce que le mode Auto fait exactement ?**
+> Il analyse les taux de funding en temps réel et sélectionne les 3 paires les plus rentables (meilleur APR). Les paires sont mises à jour quand vous activez le mode Auto.
+
+**Q: Comment lire la courbe d'equity ?**
+> L'axe X = le temps (60 jours), l'axe Y = le PnL cumulé en $. Une courbe montante = le bot est rentable. Les drawdowns (baisses temporaires) sont normaux et attendus.
+
+---
+
+## 📖 Guide d'utilisation (développeur)
 
 ### Étape 1 — Collecter les données historiques
 
@@ -224,11 +341,8 @@ python data_collectors/historical/paradex_prices.py
 python data_collectors/pipeline/cleaner.py
 ```
 
-Cela génère 6 fichiers dans `data/processed/` :
-- `MASTER_PRICES_5M_ALL.parquet` — Tous les prix
-- `MASTER_PRICES_5M_STRICT.parquet` — Données filtrées (<20% missing)
-- `MASTER_PRICES_5M_ARBITRAGE.parquet` — Tokens sur ≥2 exchanges
-- Idem pour `MASTER_FUNDING_1H_*.parquet`
+Cela génère les fichiers dans `data/processed/` :
+- `MASTER_FUNDING_1H_*.parquet` — Funding rates alignés
 
 ### Étape 3 — Lancer les flux live
 
@@ -246,8 +360,24 @@ python data_collectors/live/paradex_live.py
 | Dashboard | `/` | Vue d'ensemble, top opportunités |
 | Live Monitor | `/live` | Matrice live temps réel |
 | Historical | `/historical` | Scanner d'opportunités + qualité données |
-| Strategy Lab | `/strategy` | Analyse de risque + Backtest |
-| Bot Control | `/bot` | Start/Stop bot, positions, logs |
+| Strategy Lab | `/strategy` | Analyse de risque + Backtest (Strategy vs Funding Hold) |
+| Bot Control | `/bot` | Login, Start/Stop bot, positions, logs, clés API |
+| Bot Portfolio | `/bot-portfolio` | Backtest multi-paires avec allocation dynamique |
+
+### Gestion des utilisateurs (Admin)
+
+Pour ajouter un nouvel utilisateur au bot, éditez le fichier `backend/bot/auth.py` :
+
+```python
+# Ligne ~19 — Ajouter une entrée ici
+USERS = {
+    "admin": "FundingArb2026!",
+    "erwan": "PPE_Upgrade!",
+    "nouveau_user": "son_mot_de_passe",  # ← ajouter ici
+}
+```
+
+Redémarrez le backend pour appliquer les changements.
 
 ---
 
@@ -288,135 +418,33 @@ Chaque script interroge son exchange périodiquement et publie dans Redis.
 
 ---
 
-### 📂 `data_collectors/pipeline/cleaner.py` — Pipeline de nettoyage
+### 📂 `backend/strategy/` — Moteur de stratégie
 
-Le cœur du traitement de données :
+| Module | Phase | Objectif |
+|--------|-------|----------|
+| `risk_analysis.py` | Phase 1 | Tests ADF + Engle-Granger (spread stationnaire ?) |
+| `cost_model.py` | Phase 2 | Fees Maker/Taker + Slippage + Gas (Starknet) |
+| `signal_generator.py` | Phase 3 | Signaux Z-Score rolling : `Z > 2 → ENTER`, `|Z| < 0.5 → EXIT` |
+| `rebalancer.py` | Phase 4 | Vérification neutralité delta + marge |
+| `backtester.py` | Phase 5 | Backtest par paire avec gate 1.2x coûts, SMA 6h exit, stop-loss -0.5% |
+| `bot_backtester.py` | — | Backtest multi-paires (allocation $10k × 3 slots, lissage si PnL < 0) |
+| `optimizer.py` | — | Grid search Z-Score × Lookback pour trouver les meilleurs paramètres |
 
-1. **Chargement** : Lit tous les fichiers parquet de chaque exchange
-2. **Normalisation** : Unifie les noms de tokens (`BTC-USD-PERP` → `BTC`, `1000PEPE` → `PEPE`)
-3. **Correction Funding** : Binance 8h → 1h (÷8), Paradex 8h → 1h (÷8)
-4. **Pivot** : Crée une matrice `datetime × (token, exchange)` alignée
-5. **Filtrage** : 3 niveaux de qualité (ALL / STRICT / ARBITRAGE)
+### 📂 `backend/bot/` — Bot d'exécution
 
----
+| Module | Rôle |
+|--------|------|
+| `auth.py` | Authentification JWT (HMAC-SHA256, expiration 24h) + gestion des utilisateurs |
+| `supervisor.py` | Boucle principale : signaux → profitabilité → exécution → monitoring → rebalancing |
+| `executor.py` | Placement d'ordres via CCXT (market/limit, long + short simultanés) |
+| `wallet_manager.py` | Suivi des balances cross-exchange + calcul des transferts |
 
-### 📂 `backend/` — Serveur API
-
-#### `main.py` — Point d'entrée FastAPI
-
-- 12 routes REST + 2 WebSockets
-- CORS activé pour le frontend
-- Lifecycle : initialise DataService et BotSupervisor au démarrage
-
-#### `services/data_service.py` — Couche données
-
-- Lit les matrices Parquet avec cache en mémoire
-- Connexion Redis pour les taux live
-- Scan d'opportunités : calcule l'APR pour chaque paire token/exchange
-
-#### `strategy/risk_analysis.py` — Phase 1 : Mesure du risque
-
-Implémente les 3 tests statistiques de la stratégie :
-
-- **ADF** (Augmented Dickey-Fuller) : Le spread est-il stationnaire (mean-reverting) ?
-- **Engle-Granger** : Existe-t-il une relation de long terme stable entre les prix ?
-- **Hedge Ratio β** : Combien shorter pour chaque unité longée ?
-
-Verdict automatique : `LOW` / `MEDIUM` / `HIGH` risk.
-
-#### `strategy/cost_model.py` — Phase 2 : Coûts réels
-
-Modélise tous les coûts de transaction :
-- Fees Maker/Taker par exchange
-- Slippage linéaire
-- Gas fees (Starknet pour Extended/Paradex)
-- Test de profitabilité : `E[Yield] > Costs` ?
-
-#### `strategy/signal_generator.py` — Phase 3 : Z-Score
-
-Le signal principal de la stratégie :
-
-```
-Z_t = (spread_t - μ_rolling) / σ_rolling
-
-- Z < -2.0  →  LONG  (funding anormalement bas, expect augmentation)
-- Z > +2.0  →  SHORT (funding anormalement haut, expect baisse)
-- |Z| < 0.5 →  EXIT  (retour à l'équilibre)
-```
-
-#### `strategy/rebalancer.py` — Phase 4 : Rebalancing
-
-- **Margin Rebalancing** : Vérifie que le collatéral est suffisant
-- **Delta Rebalancing** : Maintient la neutralité `Δ ≈ 0`
-- Calcule les ajustements nécessaires en USD
-
-#### `strategy/backtester.py` — Phase 5 : Backtest
-
-Simulation heure par heure intégrant toutes les phases :
-
-1. Vérifie les signaux Z-Score
-2. Teste la profitabilité AVANT chaque entrée
-3. Cumule le funding collecté
-4. Calcule : Sharpe, Max DrawDown, Win Rate, Profit Factor
-
-#### `bot/executor.py` — Exécution d'ordres
-
-Connecteurs CCXT pour chaque exchange. Gère :
-- Placement d'ordres market/limit
-- Ouverture/fermeture de positions arbitrage (long + short simultanés)
-
-#### `bot/wallet_manager.py` — Gestion des wallets
-
-- Suivi des balances cross-exchange
-- Calcul des transferts de rebalancing
-- Historique des transferts
-
-#### `bot/supervisor.py` — Superviseur principal
-
-Boucle continue qui orchestre le tout :
+Le superviseur supporte deux modes :
 
 | Mode | Comportement |
 |------|-------------|
-| `manual` | Signaux uniquement (vous exécutez) |
-| `paper` | Simulation sans capital réel |
-| `live` | Exécution automatique via CCXT |
-
----
-
-### 📂 `frontend/` — Interface Web
-
-#### `src/app/page.tsx` — Dashboard
-
-- 4 KPI cards (paires actives, best APR, avg APR, status bot)
-- Tableau des top opportunités live
-- Auto-refresh 30s
-
-#### `src/app/live/page.tsx` — Live Monitor
-
-- Matrice complète des taux de funding en temps réel
-- Filtres : recherche, exchanges min
-- Badges Long/Short avec couleurs
-- Auto-refresh 15s
-
-#### `src/app/historical/page.tsx` — Analyse historique
-
-- Scanner d'opportunités (classement par APR)
-- Audit de qualité des données (densité, couverture)
-- Sélecteur de dataset (ALL / STRICT / ARBITRAGE)
-
-#### `src/app/strategy/page.tsx` — Strategy Lab
-
-- Configuration paramétrique (Z-Score, lookback, seuils)
-- Résultats d'analyse de risque (ADF, Cointégration, β)
-- Tableau complet des trades du backtest
-- 8 métriques de performance
-
-#### `src/app/bot/page.tsx` — Bot Control
-
-- Start/Stop avec indicateur LED pulsant
-- Configuration dynamique des paires (Add/Remove)
-- Vue des positions ouvertes
-- Log d'activité en temps réel (terminal-style)
+| `manual` | Vous sélectionnez les paires et le bot les suit |
+| `auto` | Le bot choisit les 3 meilleures paires automatiquement (par APR live) |
 
 ---
 
@@ -453,12 +481,13 @@ graph LR
 ### Fichier `.env`
 
 ```env
-# Exchanges
-BINANCE_API_KEY=votre_clé
-BINANCE_API_SECRET=votre_secret
-HYPERLIQUID_API_KEY=...
-EXTENDED_API_KEY=...
-PARADEX_API_KEY=...
+# Redis
+REDIS_HOST=localhost
+REDIS_PORT=6379
+
+# Serveur
+API_HOST=0.0.0.0
+API_PORT=8000
 
 # Stratégie
 ZSCORE_ENTRY_THRESHOLD=2.0
@@ -467,8 +496,24 @@ MAX_LEVERAGE=3.0
 MAX_POSITION_SIZE_USD=10000
 
 # Bot
-BOT_MODE=manual  # manual | paper | live
+BOT_MODE=manual          # manual | paper | live
+BOT_JWT_SECRET=changer-cette-clé-en-production
 ```
+
+### Déploiement Docker (production)
+
+```bash
+# Lancer le stack complet
+docker compose up -d
+
+# Voir les logs
+docker compose logs -f
+
+# Arrêter
+docker compose down
+```
+
+Le `docker-compose.yml` crée 3 services : Redis, Backend (port 8000), Frontend (port 3000).
 
 ---
 

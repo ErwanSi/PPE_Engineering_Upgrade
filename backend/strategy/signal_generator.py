@@ -62,10 +62,10 @@ class SignalGenerator:
         """
         Determine signal from a single Z-Score value.
         """
-        if zscore < -self.entry_threshold:
-            return "LONG"  # Funding abnormally low → expect increase
-        elif zscore > self.entry_threshold:
-            return "SHORT"  # Funding abnormally high → expect decrease
+        if zscore > self.entry_threshold:
+            return "ENTER_POS"  # Funding abnormally high → expect it, earn positive spread
+        elif zscore < -self.entry_threshold:
+            return "ENTER_NEG"  # Funding abnormally low → expect it, earn negative spread by inverting
         elif abs(zscore) < self.exit_threshold:
             return "EXIT"  # Return to equilibrium
         else:
@@ -96,7 +96,7 @@ class SignalGenerator:
 
         # Detect signal transitions
         df["signal_change"] = df["signal"] != df["signal"].shift(1)
-        df["entry"] = df["signal_change"] & df["signal"].isin(["LONG", "SHORT"])
+        df["entry"] = df["signal_change"] & df["signal"].isin(["ENTER_POS", "ENTER_NEG"])
         df["exit"] = df["signal_change"] & (df["signal"] == "EXIT")
 
         return df

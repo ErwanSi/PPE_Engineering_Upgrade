@@ -57,7 +57,7 @@ export default function HistoricalPage() {
     <div>
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: 28, fontWeight: 800, letterSpacing: '-0.03em', margin: 0 }}>
-          📊 Historical Analysis
+          Historical Analysis
         </h1>
         <p style={{ fontSize: 14, color: '#8888aa', marginTop: 6 }}>
           Data quality audit and opportunity scanner
@@ -77,7 +77,7 @@ export default function HistoricalPage() {
               background: tab === t ? 'linear-gradient(135deg, #4488ff, #3366cc)' : 'transparent',
               color: tab === t ? '#fff' : '#8888aa',
             }}>
-              {t === 'scanner' ? '🚀 Scanner' : '🔍 Data Quality'}
+              {t === 'scanner' ? 'Scanner' : 'Data Quality'}
             </button>
           ))}
         </div>
@@ -88,7 +88,7 @@ export default function HistoricalPage() {
             borderRadius: 8, padding: '10px 24px', color: '#000', fontSize: 13,
             fontWeight: 700, cursor: 'pointer',
           }}>
-            ▶ Run Scan
+            Run Scan
           </button>
         )}
       </div>

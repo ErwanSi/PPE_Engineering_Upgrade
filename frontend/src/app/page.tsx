@@ -54,7 +54,7 @@ export default function DashboardPage() {
       try {
         const [liveRes, botRes] = await Promise.allSettled([
           fetchAPI('/api/live?min_exchanges=2'),
-          fetchAPI('/api/bot/command', { method: 'POST', body: JSON.stringify({ action: 'status' }) }),
+          fetchAPI('/api/bot/status'),
         ]);
 
         if (liveRes.status === 'fulfilled') setLiveData(liveRes.value.data || []);
@@ -124,7 +124,7 @@ export default function DashboardPage() {
       }}>
         <div style={{ padding: '18px 24px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
           <h2 style={{ fontSize: 16, fontWeight: 700, margin: 0, display: 'flex', alignItems: 'center', gap: 8 }}>
-            🔥 Top Opportunities
+            Top Opportunities
             <span style={{ fontSize: 12, color: '#8888aa', fontWeight: 400 }}>
               (Live data)
             </span>

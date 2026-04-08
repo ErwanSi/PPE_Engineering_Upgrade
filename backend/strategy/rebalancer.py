@@ -78,9 +78,9 @@ class Rebalancer:
             "needs_rebalance": needs_rebalance,
             "near_liquidation": near_liquidation,
             "recommended_action": (
-                "🔴 URGENT: Add margin immediately" if near_liquidation
-                else "⚠️ Margin low — Consider adding collateral" if needs_rebalance
-                else "✅ Healthy"
+                "URGENT: Add margin immediately" if near_liquidation
+                else "Margin low -- Consider adding collateral" if needs_rebalance
+                else "Healthy"
             )
         }
 
@@ -122,7 +122,7 @@ class Rebalancer:
                 adjustment_usd = abs(delta) * total_value / 2
                 action = f"Reduce SHORT by ${adjustment_usd:.2f} or Increase LONG by ${adjustment_usd:.2f}"
         else:
-            action = "✅ Delta neutral"
+            action = "Delta neutral"
             adjustment_usd = 0
 
         return {

@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from strategy.backtester import EventDrivenBacktester
 
 class StrategyOptimizer:
@@ -63,3 +63,17 @@ class StrategyOptimizer:
         # Sort by Sharpe then PnL
         results.sort(key=lambda x: (x["sharpe"], x["pnl"]), reverse=True)
         return results[:5]
+
+    def get_best_config(self, token: str, long_exchange: str, short_exchange: str, base_config: Any) -> Optional[Any]:
+        """Finds the single best config for a pair."""
+        results = self.run_optimization(token, long_exchange, short_exchange, base_config)
+        if not results:
+            return None
+        
+        best = results[0]["params"]
+        from schemas import StrategyConfig
+        new_cfg = StrategyConfig(**base_config.dict())
+        new_cfg.zscore_entry = best["zscore_entry"]
+        new_cfg.zscore_exit = best["zscore_exit"]
+        new_cfg.lookback_hours = best["lookback_hours"]
+        return new_cfg

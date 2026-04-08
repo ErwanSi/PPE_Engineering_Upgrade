@@ -44,7 +44,7 @@ export default function LivePage() {
     <div>
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ fontSize: 28, fontWeight: 800, letterSpacing: '-0.03em', margin: 0 }}>
-          📡 Live Monitor
+          Live Monitor
         </h1>
         <p style={{ fontSize: 14, color: '#8888aa', marginTop: 6 }}>
           Real-time funding rates from Redis — Auto-refresh every 15s
