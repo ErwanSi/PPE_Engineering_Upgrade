@@ -211,8 +211,7 @@ Ces pages sont accessibles **sans compte** :
 | **Dashboard** (`/`) | Vue d'ensemble : meilleures opportunités, statut du bot, APR moyens |
 | **Live** (`/live`) | Matrice temps réel des taux de funding sur les 4 exchanges. Rafraîchie toutes les 15s |
 | **Historical** (`/historical`) | Scanner d'opportunités historiques : classement des paires par APR sur 6 mois |
-| **Strategy** (`/strategy`) | Backtest d'une paire spécifique : sélectionnez un token + 2 exchanges, ajustez les paramètres, lancez le backtest et visualisez Strategy vs Funding Hold |
-| **Bot Portfolio** (`/bot-portfolio`) | Backtest multi-paires : simule le bot sur toutes les paires en même temps avec allocation dynamique |
+| **Strategy** (`/strategy`) | Backtest d'une paire spécifique : sélectionnez un token + 2 exchanges, ajustez les paramètres et lancez le backtest |
 
 💡 **Astuce** : Commencez par la page **Live** pour voir quels tokens ont les plus gros spreads en ce moment, puis allez dans **Strategy** pour backtester ces paires.
 
