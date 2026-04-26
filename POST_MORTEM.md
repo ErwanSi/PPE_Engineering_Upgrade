@@ -51,7 +51,7 @@ Quand je presentais des resultats comme "ADF t-stat de -8.47" ou "Sharpe de 2.47
 
 ---
 
-## POST-MORTEM DE JEROMSAN JUDIS RAMSES
+## POST-MORTEM DE JEROMSAN JUDES RAMESH
 
 *Backend & Trading Engine Developer*
 
